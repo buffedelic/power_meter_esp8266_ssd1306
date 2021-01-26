@@ -26,6 +26,7 @@
 #define HEATER_TOPIC "power/meter/heater/current"
 #define FTX_TOPIC "power/meter/ftx/current"
 #define HOUSE_HOLD_TOPIC "power/meter/house_hold/current"
+#define DISCOVERY_PREFIX "homeassistant"
 
 //**********************************************************************************/
 // oled display constants

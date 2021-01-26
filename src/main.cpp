@@ -1,17 +1,15 @@
 #include <Arduino.h>
 #include <OneWire.h>
 #include <DS2423.h>
-
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <iostream>
 #include <string>
-
+#include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-
 #include <config.h>
 
 
@@ -86,10 +84,33 @@ void setup_wifi() {
 //**********************************************************************************/
 
 boolean reconnect() {
+  setup_wifi(); // LED blinks until connected
   if (client.connect("powerClient", MQTT_USER, MQTT_PASSWORD)) {
     // Once connected, publish device config *************************************************
     //****************************************************************************************
-    client.publish("outTopic","hello world");
+    // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
+    // homeassistant/sensor/power/meter-house-hold/config
+    boolean retained = true;
+    char _topic[60];
+    sprintf(_topic, "%s/sensor/power/meter-total/config", DISCOVERY_PREFIX);
+    
+    StaticJsonDocument<1024> payload;
+    payload["name"] = "Power Total";
+    payload["state_topic"] = "power/meter/total/current";
+    payload["unique_id"] = "power_meter_total";
+    payload["device_class"] = "energy";
+    payload["unit_of_meas"] = "W";
+    JsonObject dev = payload.createNestedObject("device");
+    dev["name"] = "Power Meter";
+    dev["model"] = "-";
+    dev["manufacturer"] = "Tesla :)";
+    dev["identifiers"] = "POW1";
+
+    char _payload[1024];
+    serializeJson(payload, _payload, 1024);
+
+    client.publish(_topic,_payload, retained);
+
     // ... and resubscribe
     //client.subscribe("inTopic");
   }
@@ -100,13 +121,13 @@ boolean reconnect() {
 void publishPower(){
 
   char buffer[5];
-  sprintf(buffer, "%5u", wattTotal);
+  sprintf(buffer, "%u", wattTotal);
   client.publish(TOTAL_TOPIC, buffer);
-  sprintf(buffer, "%5u", wattHeater);
+  sprintf(buffer, "%u", wattHeater);
   client.publish(HEATER_TOPIC, buffer);
-  sprintf(buffer, "%5u", wattFtx);
+  sprintf(buffer, "%u", wattFtx);
   client.publish(FTX_TOPIC, buffer);
-  sprintf(buffer, "%5u", wattHousehold);
+  sprintf(buffer, "%u", wattHousehold);
   client.publish(HOUSE_HOLD_TOPIC, buffer);
   Serial.println("-----------------------------------");
   Serial.println("| Published power usage to broker |");
@@ -144,50 +165,53 @@ void readPower(){
   
   currentTime = millis();
   double _interval = (currentTime - lastTime) / 1000.0000;
+  lastTime = currentTime;
 
   readCounters(count0, count1);
 
   double cn0 = _interval / (count0 - lastCount0);
   double cn1 = _interval / (count1 - lastCount1);
 
-  Serial.println("");
-  Serial.println("DEBUG");
-  Serial.println("***************************************************************************");
-  Serial.println("Time: Interval, Current, Last:");
-  Serial.print(_interval); Serial.print("="); Serial.print(currentTime); Serial.print("-"); Serial.println(lastTime);
-  Serial.println("---------------------------------------------------------------------------");
-  Serial.println("Counter 0: Total, Last, Count/sec:");
-  Serial.print(count0); Serial.print("-"); Serial.print(lastCount0); Serial.print("="); Serial.println(cn0);
-  Serial.println("---------------------------------------------------------------------------");
-  Serial.println("Counter 1: Heater, Last, Count/sec:");
-  Serial.print(count1); Serial.print("-"); Serial.print(lastCount1); Serial.print("="); Serial.println(cn1);  
-  lastTime = currentTime;
+  if(DEBUG){
+    Serial.println("");
+    Serial.println("DEBUG");
+    Serial.println("***************************************************************************");
+    Serial.println("Time: Interval, Current, Last:");
+    Serial.print(_interval); Serial.print("="); Serial.print(currentTime); Serial.print("-"); Serial.println(lastTime);
+    Serial.println("---------------------------------------------------------------------------");
+    Serial.println("Counter 0: Total, Last, Count/sec:");
+    Serial.print(count0); Serial.print("-"); Serial.print(lastCount0); Serial.print("="); Serial.println(cn0);
+    Serial.println("---------------------------------------------------------------------------");
+    Serial.println("Counter 1: Heater, Last, Count/sec:");
+    Serial.print(count1); Serial.print("-"); Serial.print(lastCount1); Serial.print("="); Serial.println(cn1); 
+  } 
 
+  lastCount0 = count0;
+  lastCount1 = count1;
   wattTotal = (3600.0000 / cn0) / PPWH_1;
   wattHeater = (3600.0000 / cn1) / PPWH_08;
   wattFtx = 0;
   wattHousehold = wattTotal - wattHeater - wattFtx;
 
-  lastCount0 = count0;
-  lastCount1 = count1;
 }
 
 //**********************************************************************************/
 // OLED SSD1306 functions
 //**********************************************************************************/
 
-void updateScreen(char *_wattText[]) {
+void updateScreen() {
 
-  _wattText[4] = {
-    "Total:        " + (String)wattTotal + "W",
-    "Heater:       " + (String)wattHeater + "W",
-    "FTX:          " + (String)wattFtx + "W",
-    "Household:    " + (String)wattHousehold + "W"
+  String _wattText[4] = {
+    "Total:        " + (String)wattTotal + 'W',
+    "Heater:       " + (String)wattHeater + 'W',
+    "FTX:          " + (String)wattFtx + 'W',
+    "Household:    " + (String)wattHousehold + 'W'
     };
-  for(int i = 0; i < 4; i++) {
-    Serial.println(_wattText[i]);
-    }
-
+  if(DEBUG){
+    for(int i = 0; i < 4; i++) {
+      Serial.println(_wattText[i]);
+      }
+  }
   display.setCursor(0,0);             // Start at top-left corner
   display.clearDisplay();
   display.setTextSize(1);
@@ -202,7 +226,7 @@ void updateScreen(char *_wattText[]) {
   }
   else {
     for(int i = 0; i < 4; i++) {
-      display.println(text[i]);
+      display.println(_wattText[i]);
     }
   }
   display.display();
@@ -228,15 +252,10 @@ void setup() {
   //Initialize WiFi
   pinMode(LED_BUILTIN, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
   digitalWrite(LED_BUILTIN, HIGH); // Turn LED off
-  setup_wifi(); // LED blinks until connected
 
   // Initialize MQTT Client
   client.setServer(BROKER_HOST_NAME, BROKER_PORT);
   lastReconnectAttempt = 0;
-
-  readPower();
-  //updateScreen(text);
-
 }
 
 void loop() {
@@ -257,7 +276,7 @@ void loop() {
 
   readPower();
   publishPower();
-  //updateScreen(text);
+  updateScreen();
   firstRun = false;
   delay(TIME_CONST);
 }
