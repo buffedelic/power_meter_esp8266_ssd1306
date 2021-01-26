@@ -7,6 +7,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <iostream>
+#include <string>
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -35,7 +36,8 @@ unsigned long currentTime;
 unsigned long lastTime = millis();
 unsigned long interval;
 uint32_t count0, count1, lastCount0, lastCount1;
-uint32_t wattTotal, wattHeater, wattFtx, wattHousehold;
+uint8_t wattTotal, wattHeater, wattFtx, wattHousehold;
+std::string wattText[COUNTERS_COUNT + 1];
 
 //**********************************************************************************/
 // MQTT PubSub + WiFi
@@ -99,6 +101,7 @@ boolean reconnect() {
 // OneWire functions
 //**********************************************************************************/
 
+
 void readCounters(uint32_t &count0, uint32_t &count1) {
 
     cnt1.update();
@@ -113,6 +116,49 @@ void readCounters(uint32_t &count0, uint32_t &count1) {
     } else {
         count0 = cnt0.getCount(DS2423_COUNTER_A);
     }
+}
+
+void readPower(){
+  
+  currentTime = millis();
+  double _interval = (currentTime - lastTime) / 1000.0000;
+
+  readCounters(count0, count1);
+
+  double cn0 = _interval / (count0 - lastCount0);
+  double cn1 = _interval / (count1 - lastCount1);
+
+  Serial.println("");
+  Serial.println("DEBUG");
+  Serial.println("***************************************************************************");
+  Serial.println("Time: Interval, Current, Last:");
+  Serial.print(_interval); Serial.print("="); Serial.print(currentTime); Serial.print("-"); Serial.println(lastTime);
+  Serial.println("---------------------------------------------------------------------------");
+  Serial.println("Counter 0: Total, Last, Count/sec:");
+  Serial.print(count0); Serial.print("-"); Serial.print(lastCount0); Serial.print("="); Serial.println(cn0);
+  Serial.println("---------------------------------------------------------------------------");
+  Serial.println("Counter 1: Heater, Last, Count/sec:");
+  Serial.print(count1); Serial.print("-"); Serial.print(lastCount1); Serial.print("="); Serial.println(cn1);  
+  lastTime = currentTime;
+
+  wattTotal = (3600.0000 / cn0) / PPWH_1;
+  wattHeater = (3600.0000 / cn1) / PPWH_08;
+  wattFtx = 0;
+  wattHousehold = wattTotal - wattHeater - wattFtx;
+
+  lastCount0 = count0;
+  lastCount1 = count1;
+
+
+  // String _text[4] = {
+  //   "Total:        " + (String)wattTotal + "W",
+  //   "Heater:       " + (String)wattHeater + "W",
+  //   "FTX:          " + (String)wattFtx + "W",
+  //   "Household:    " + (String)wattHousehold + "W"
+  //   };
+  // for(int i = 0; i < 4; i++) {
+  //   Serial.println(_text[i]);
+  //   }
 }
 
 //**********************************************************************************/
@@ -190,58 +236,23 @@ void loop() {
   // # watt = (3600000 / ((interval_millis / interval_count)) / 1) or 0.8
   // 400*10*1,73 = 6920W. Dvs ca 6,9kW. 3 fas "max" belastning
 
-  currentTime = millis();
-  interval = currentTime - lastTime;
-  double _interval = interval / 1000.0000;
-  readCounters(count0, count1);
-  double cn0 = _interval / (count0 - lastCount0);
-  double cn1 = _interval / (count1 - lastCount1);
-
-  Serial.println("");
-  Serial.println("DEBUG");
-  Serial.println("***************************************************************************");
-  Serial.println("Time, Interval, Current, Last:");
-  Serial.print(_interval); Serial.print("="); Serial.print(currentTime); Serial.print("-"); Serial.println(lastTime);
-  Serial.println("---------------------------------------------------------------------------");
-  Serial.println("Counter 0, Total, Last, Diff:");
-  Serial.print(count0); Serial.print("-"); Serial.print(lastCount0); Serial.print("="); Serial.println(cn0);
-  Serial.println("---------------------------------------------------------------------------");
-  Serial.println("Counter 1, Heater, Last, Diff:");
-  Serial.print(count1); Serial.print("-"); Serial.print(lastCount1); Serial.print("="); Serial.println(cn1);  
-  lastTime = currentTime;
-
-  wattTotal = (3600.0000 / cn0) / PPWH_1;
-  wattHeater = (3600.0000 / cn1) / PPWH_08;
-  wattFtx = 0;
-  wattHousehold = wattTotal - wattHeater - wattFtx;
-
-  lastCount0 = count0;
-  lastCount1 = count1;
+  readPower();
 
   if(!firstRun){
-    char buffer[16];
+    char buffer[5];
     sprintf(buffer, "%5u", wattTotal);
-    client.publish("power/meter/total/current", buffer);
+    client.publish(TOTAL_TOPIC, buffer);
     sprintf(buffer, "%5u", wattHeater);
-    client.publish("power/meter/heater/current", buffer);
+    client.publish(HEATER_TOPIC, buffer);
     sprintf(buffer, "%5u", wattFtx);
-    client.publish("power/meter/ftx/current", buffer);
+    client.publish(FTX_TOPIC, buffer);
     sprintf(buffer, "%5u", wattHousehold);
-    client.publish("power/meter/house_hold/current", buffer);
+    client.publish(HOUSE_HOLD_TOPIC, buffer);
     Serial.println("-----------------------------------");
     Serial.println("| Published power usage to broker |");
     Serial.println("-----------------------------------");
   }
 
-  String text[4] = {
-    "Total:        " + (String)wattTotal + "W",
-    "Heater:       " + (String)wattHeater + "W",
-    "FTX:          " + (String)wattFtx + "W",
-    "Household:    " + (String)wattHousehold + "W"
-    };
-  for(int i = 0; i < 4; i++) {
-    Serial.println(text[i]);
-    }
   updateScreen(text);
   firstRun = false;
   delay(TIME_CONST);

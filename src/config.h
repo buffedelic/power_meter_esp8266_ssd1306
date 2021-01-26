@@ -12,13 +12,20 @@
  * Note: default MSS for ESPAsyncTCP is 536 byte and defualt ACK timeout is 5s.
 */
 
+//**********************************************************************************/
+// MQTT + WiFi display constants
+/**********************************************************************************/
 #define SSID "Nescafe"
 #define WIFI_PASSWORD "nopassword"
 
 #define BROKER_HOST_NAME "homeassistant"
 #define BROKER_PORT 1883
-#define MQTT_USER "Buff"
+#define MQTT_USER "buff"
 #define MQTT_PASSWORD "mammas"
+#define TOTAL_TOPIC "power/meter/total/current"
+#define HEATER_TOPIC "power/meter/heater/current"
+#define FTX_TOPIC "power/meter/ftx/current"
+#define HOUSE_HOLD_TOPIC "power/meter/house_hold/current"
 
 //**********************************************************************************/
 // oled display constants
@@ -30,6 +37,7 @@
 
 #define PPWH_1 1
 #define PPWH_08 0.8
+#define COUNTERS_COUNT 3 //Set the number of counters used
 #define TIME_CONST 49350 // Adjust to get roughly 60 seconds for every main loop
 #define DEBUG true
 
