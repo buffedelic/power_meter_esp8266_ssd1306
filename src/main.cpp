@@ -15,8 +15,8 @@
 #include <config.h>
 
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 bool firstRun = true;
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //**********************************************************************************/
 // OneWire constants
@@ -26,8 +26,8 @@ const uint8_t ONE_WIRE_PIN = 0; // define the Arduino digital I/O pin to be used
 uint8_t DS2423_address1[] = { 0x1D, 0x00, 0xFD, 0x0C, 0x00, 0x00, 0x00, 0x9B }; // define the 1-Wire address of the DS2423 counter here
 uint8_t DS2423_address0[] = { 0x1D, 0x6C, 0xEC, 0x0C, 0x00, 0x00, 0x00, 0x94 }; // define the 1-Wire address of the DS2423 counter here
 OneWire ow(ONE_WIRE_PIN);
-DS2423 cnt1(&ow, DS2423_address1); // heatpump
-DS2423 cnt0(&ow, DS2423_address0); // total
+DS2423 cnt0(&ow, DS2423_address0); // COUNTER 0, total, empty
+DS2423 cnt1(&ow, DS2423_address1); // COUNTER 1, heatpump, empty
 
 //**********************************************************************************/
 // power calculation variables
@@ -37,7 +37,7 @@ unsigned long lastTime = millis();
 unsigned long interval;
 uint32_t count0, count1, lastCount0, lastCount1;
 uint8_t wattTotal, wattHeater, wattFtx, wattHousehold;
-std::string wattText[COUNTERS_COUNT + 1];
+char wattText[COUNTERS_COUNT + 1];
 
 //**********************************************************************************/
 // MQTT PubSub + WiFi
@@ -97,6 +97,24 @@ boolean reconnect() {
   
 }
 
+void publishPower(){
+
+  char buffer[5];
+  sprintf(buffer, "%5u", wattTotal);
+  client.publish(TOTAL_TOPIC, buffer);
+  sprintf(buffer, "%5u", wattHeater);
+  client.publish(HEATER_TOPIC, buffer);
+  sprintf(buffer, "%5u", wattFtx);
+  client.publish(FTX_TOPIC, buffer);
+  sprintf(buffer, "%5u", wattHousehold);
+  client.publish(HOUSE_HOLD_TOPIC, buffer);
+  Serial.println("-----------------------------------");
+  Serial.println("| Published power usage to broker |");
+  Serial.println("-----------------------------------");
+
+
+}
+
 //**********************************************************************************/
 // OneWire functions
 //**********************************************************************************/
@@ -104,21 +122,25 @@ boolean reconnect() {
 
 void readCounters(uint32_t &count0, uint32_t &count1) {
 
-    cnt1.update();
-    if (cnt1.isError()) {
-        Serial.println("Error reading counter");
-    } else {
-        count1 = cnt1.getCount(DS2423_COUNTER_A);
-    }
     cnt0.update();
     if (cnt0.isError()) {
         Serial.println("Error reading counter");
     } else {
         count0 = cnt0.getCount(DS2423_COUNTER_A);
     }
+    cnt1.update();
+    if (cnt1.isError()) {
+        Serial.println("Error reading counter");
+    } else {
+        count1 = cnt1.getCount(DS2423_COUNTER_A);
+    }
 }
 
 void readPower(){
+  // # P(w) = (3600 / T(s)) / ppwh
+  // # watt = (3600000 / ((interval_millis / interval_count)) / 1) or 0.8
+  // 400*16*1,73 = 11072W. Dvs ca 11,1kW. 3 fas "max" belastning
+  // 400*20*1,73 = 13840W. Dvs ca 13,9kW. 3 fas "max" belastning
   
   currentTime = millis();
   double _interval = (currentTime - lastTime) / 1000.0000;
@@ -148,24 +170,23 @@ void readPower(){
 
   lastCount0 = count0;
   lastCount1 = count1;
-
-
-  // String _text[4] = {
-  //   "Total:        " + (String)wattTotal + "W",
-  //   "Heater:       " + (String)wattHeater + "W",
-  //   "FTX:          " + (String)wattFtx + "W",
-  //   "Household:    " + (String)wattHousehold + "W"
-  //   };
-  // for(int i = 0; i < 4; i++) {
-  //   Serial.println(_text[i]);
-  //   }
 }
 
 //**********************************************************************************/
 // OLED SSD1306 functions
 //**********************************************************************************/
 
-void updateScreen(String text[4]) {
+void updateScreen(char *_wattText[]) {
+
+  _wattText[4] = {
+    "Total:        " + (String)wattTotal + "W",
+    "Heater:       " + (String)wattHeater + "W",
+    "FTX:          " + (String)wattFtx + "W",
+    "Household:    " + (String)wattHousehold + "W"
+    };
+  for(int i = 0; i < 4; i++) {
+    Serial.println(_wattText[i]);
+    }
 
   display.setCursor(0,0);             // Start at top-left corner
   display.clearDisplay();
@@ -202,17 +223,19 @@ void setup() {
   // Initialize OneWire counters
   cnt1.begin(DS2423_COUNTER_A|DS2423_COUNTER_B);
   cnt0.begin(DS2423_COUNTER_A|DS2423_COUNTER_B);
-  readCounters(lastCount0, lastCount1);
+  readCounters(lastCount0, lastCount1); // initialize base point
 
   //Initialize WiFi
   pinMode(LED_BUILTIN, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
-  digitalWrite(LED_BUILTIN, LOW); // Turn LED on
-  setup_wifi();
+  digitalWrite(LED_BUILTIN, HIGH); // Turn LED off
+  setup_wifi(); // LED blinks until connected
 
   // Initialize MQTT Client
   client.setServer(BROKER_HOST_NAME, BROKER_PORT);
   lastReconnectAttempt = 0;
-  // client.setCallback(callback);
+
+  readPower();
+  //updateScreen(text);
 
 }
 
@@ -232,28 +255,9 @@ void loop() {
     client.loop();
   }
 
-  // # P(w) = (3600 / T(s)) / ppwh
-  // # watt = (3600000 / ((interval_millis / interval_count)) / 1) or 0.8
-  // 400*10*1,73 = 6920W. Dvs ca 6,9kW. 3 fas "max" belastning
-
   readPower();
-
-  if(!firstRun){
-    char buffer[5];
-    sprintf(buffer, "%5u", wattTotal);
-    client.publish(TOTAL_TOPIC, buffer);
-    sprintf(buffer, "%5u", wattHeater);
-    client.publish(HEATER_TOPIC, buffer);
-    sprintf(buffer, "%5u", wattFtx);
-    client.publish(FTX_TOPIC, buffer);
-    sprintf(buffer, "%5u", wattHousehold);
-    client.publish(HOUSE_HOLD_TOPIC, buffer);
-    Serial.println("-----------------------------------");
-    Serial.println("| Published power usage to broker |");
-    Serial.println("-----------------------------------");
-  }
-
-  updateScreen(text);
+  publishPower();
+  //updateScreen(text);
   firstRun = false;
   delay(TIME_CONST);
 }
