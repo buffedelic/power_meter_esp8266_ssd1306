@@ -7,10 +7,13 @@
 #include <Adafruit_SSD1306.h>
 #include <iostream>
 #include <string>
-#include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <config.h>
+#include <cctype>
+#include <cstring>
+#include <ArduinoJson.h>
+
 
 
 bool firstRun = true;
@@ -92,24 +95,42 @@ boolean reconnect() {
     // homeassistant/sensor/power/meter-house-hold/config
     boolean retained = true;
     char _topic[60];
-    sprintf(_topic, "%s/sensor/power/meter-total/config", DISCOVERY_PREFIX);
-    
+    std::string meters[4] = {"Total", "FTX", "Heater", "Household"};
     StaticJsonDocument<1024> payload;
-    payload["name"] = "Power Total";
-    payload["state_topic"] = "power/meter/total/current";
-    payload["unique_id"] = "power_meter_total";
-    payload["device_class"] = "energy";
-    payload["unit_of_meas"] = "W";
-    JsonObject dev = payload.createNestedObject("device");
-    dev["name"] = "Power Meter";
-    dev["model"] = "-";
-    dev["manufacturer"] = "Tesla :)";
-    dev["identifiers"] = "POW1";
-
     char _payload[1024];
-    serializeJson(payload, _payload, 1024);
+    char _name[40];
+    char _state_topic[60];
+    char _unique_id[40];
+    char _meter[10];
+    char _meterLowCase[10];
 
-    client.publish(_topic,_payload, retained);
+    for (int i = 0; i < 4; i++){
+
+      sprintf(_meter, "%s", meters[i].c_str());
+
+      for (int i=0; i<strlen(_meter); i++)
+        _meterLowCase[i] = tolower(_meter[i]);
+
+      // Serial.println(_topic);
+      sprintf(_name, "Power %s", _meter);
+      payload["name"] = _name;
+      sprintf(_state_topic, "power/meter/%s/current", _meterLowCase);
+      payload["state_topic"] = _state_topic;
+      sprintf(_unique_id, "power_meter_%s", _meterLowCase);
+      payload["unique_id"] = _unique_id;
+      payload["device_class"] = "energy";
+      payload["unit_of_meas"] = "W";
+      // JsonObject dev = payload.createNestedObject("device");
+      // dev["name"] = "Power Meter";
+      // dev["model"] = "-";
+      // dev["manufacturer"] = "Tesla :)";
+      // dev["identifiers"] = '["POW1"]';
+
+      // serializeJson(payload, Serial); // prints payload to Serial monitor
+      serializeJson(payload, _payload, 1024);
+      sprintf(_topic, "%s/sensor/power/meter-%s/config", DISCOVERY_PREFIX, _meterLowCase);
+      client.publish(_topic,_payload, retained);
+    }
 
     // ... and resubscribe
     //client.subscribe("inTopic");
@@ -188,8 +209,8 @@ void readPower(){
 
   lastCount0 = count0;
   lastCount1 = count1;
-  wattTotal = (3600.0000 / cn0) / PPWH_1;
-  wattHeater = (3600.0000 / cn1) / PPWH_08;
+  wattTotal = (3600 / cn0) / PPWH_1;
+  wattHeater = (3600 / cn1) / PPWH_08;
   wattFtx = 0;
   wattHousehold = wattTotal - wattHeater - wattFtx;
 

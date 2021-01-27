@@ -25,7 +25,7 @@
 #define TOTAL_TOPIC "power/meter/total/current"
 #define HEATER_TOPIC "power/meter/heater/current"
 #define FTX_TOPIC "power/meter/ftx/current"
-#define HOUSE_HOLD_TOPIC "power/meter/house_hold/current"
+#define HOUSE_HOLD_TOPIC "power/meter/household/current"
 #define DISCOVERY_PREFIX "homeassistant"
 
 //**********************************************************************************/
@@ -36,7 +36,7 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3c ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 
-#define PPWH_1 1
+#define PPWH_1 1.0
 #define PPWH_08 0.8
 #define COUNTERS_COUNT 3 //Set the number of counters used
 #define TIME_CONST 49350 // Adjust to get roughly 60 seconds for every main loop
